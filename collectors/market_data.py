@@ -18,42 +18,48 @@ def _get_trading_date() -> str:
 
 
 def get_krx_stock_price(ticker: str) -> dict[str, Any]:
-    """KRX 종목 현재가 + 전일 대비"""
-    try:
-        end = _get_trading_date()
-        start = (datetime.date.today() - datetime.timedelta(days=10)).strftime("%Y%m%d")
-        df = krx_stock.get_market_ohlcv(start, end, ticker)
-        if df.empty:
-            return {"ticker": ticker, "error": "데이터 없음"}
-        latest, prev = df.iloc[-1], (df.iloc[-2] if len(df) > 1 else df.iloc[-1])
-        close, prev_close = int(latest["종가"]), int(prev["종가"])
-        return {
-            "ticker": ticker, "close": close, "prev_close": prev_close,
-            "change": close - prev_close,
-            "change_pct": round(float(latest["등락률"]), 2),
-            "volume": int(latest["거래량"]),
-        }
-    except Exception as e:
-        return {"ticker": ticker, "error": str(e)}
+    """KRX 종목 현재가 + 전일 대비 (최대 30일까지 탐색)"""
+    for days_back in [10, 20, 30]:
+        try:
+            end = _get_trading_date()
+            start = (datetime.date.today() - datetime.timedelta(days=days_back)).strftime("%Y%m%d")
+            df = krx_stock.get_market_ohlcv(start, end, ticker)
+            if not df.empty:
+                latest = df.iloc[-1]
+                prev = df.iloc[-2] if len(df) > 1 else latest
+                close, prev_close = int(latest["종가"]), int(prev["종가"])
+                return {
+                    "ticker": ticker, "close": close, "prev_close": prev_close,
+                    "change": close - prev_close,
+                    "change_pct": round(float(latest["등락률"]), 2),
+                    "volume": int(latest["거래량"]),
+                }
+        except Exception:
+            continue
+    print(f"    ⚠️ {ticker}: KRX 가격 조회 실패 (30일 내 데이터 없음)")
+    return {"ticker": ticker, "error": "데이터 없음"}
 
 
 def get_us_stock_price(ticker: str) -> dict[str, Any]:
-    """미국 주식 현재가 + 전일 대비"""
-    try:
-        hist = yf.Ticker(ticker).history(period="5d")
-        if hist.empty:
-            return {"ticker": ticker, "error": "데이터 없음"}
-        latest, prev = hist.iloc[-1], (hist.iloc[-2] if len(hist) > 1 else hist.iloc[-1])
-        close = round(float(latest["Close"]), 2)
-        prev_close = round(float(prev["Close"]), 2)
-        return {
-            "ticker": ticker, "close": close, "prev_close": prev_close,
-            "change": round(close - prev_close, 2),
-            "change_pct": round(((close - prev_close) / prev_close) * 100, 2),
-            "volume": int(latest["Volume"]), "currency": "USD",
-        }
-    except Exception as e:
-        return {"ticker": ticker, "error": str(e)}
+    """미국 주식 현재가 + 전일 대비 (기간 확장 재시도)"""
+    for period in ["5d", "10d", "1mo"]:
+        try:
+            hist = yf.Ticker(ticker).history(period=period)
+            if not hist.empty:
+                latest = hist.iloc[-1]
+                prev = hist.iloc[-2] if len(hist) > 1 else latest
+                close = round(float(latest["Close"]), 2)
+                prev_close = round(float(prev["Close"]), 2)
+                return {
+                    "ticker": ticker, "close": close, "prev_close": prev_close,
+                    "change": round(close - prev_close, 2),
+                    "change_pct": round(((close - prev_close) / prev_close) * 100, 2),
+                    "volume": int(latest["Volume"]), "currency": "USD",
+                }
+        except Exception:
+            continue
+    print(f"    ⚠️ {ticker}: US 가격 조회 실패")
+    return {"ticker": ticker, "error": "데이터 없음"}
 
 
 def get_exchange_rates() -> dict[str, Any]:

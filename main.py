@@ -84,21 +84,25 @@ def build_portfolio_section(portfolio_summary: dict) -> str:
         return ""
 
     pnl_sign = "+" if portfolio_summary["total_pnl"] >= 0 else ""
+    failed = portfolio_summary.get("failed_count", 0)
+    failed_note = f"  ⚠️ {failed}개 종목 가격 조회 실패 (매수가 기준)\n" if failed else ""
+
     lines = [
-        f"\n💰 *포트폴리오 현황*",
+        f"\n💰 *포트폴리오 현황* ({len(portfolio_summary['holdings'])}종목)",
         f"  평가액: {portfolio_summary['total_current']:,.0f}원 "
         f"(투자금 {portfolio_summary['total_invested']:,.0f}원)",
         f"  총 수익: {pnl_sign}{portfolio_summary['total_pnl']:,.0f}원 "
         f"({portfolio_summary['total_return_pct']:+.2f}%)",
-        f"",
+        failed_note,
         f"  *종목별 상세*",
     ]
 
     for h in portfolio_summary["holdings"]:
+        error_tag = " ⚠️" if h.get("price_error") else ""
         daily_icon = "🔺" if h.get("daily_change_pct", 0) >= 0 else "🔻"
         pnl_s = "+" if h["pnl"] >= 0 else ""
         lines.append(
-            f"  ▸ {h['name']} ({h['ticker']})\n"
+            f"  ▸ {h['name']} ({h['ticker']}){error_tag}\n"
             f"    전일 {h.get('prev_close', '-'):,} → 현재 {h['current_price']:,}  "
             f"{daily_icon}{abs(h.get('daily_change_pct', 0)):.2f}%\n"
             f"    매수가 {h['buy_price']:,} × {h['quantity']}주\n"

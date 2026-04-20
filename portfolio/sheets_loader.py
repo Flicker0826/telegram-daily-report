@@ -49,13 +49,21 @@ def load_portfolio() -> list[dict[str, Any]]:
 
         portfolio = []
         for row in records:
+            raw_ticker = str(row.get("종목코드", "")).strip()
+            market = str(row.get("시장", "KRX")).strip().upper()
+
+            # KRX 종목코드는 반드시 6자리 → 앞에 0 채우기
+            # Google Sheets가 005380을 숫자 5380으로 인식하는 문제 해결
+            if market == "KRX" and raw_ticker.isdigit():
+                raw_ticker = raw_ticker.zfill(6)
+
             portfolio.append({
-                "ticker": str(row.get("종목코드", "")).strip(),
+                "ticker": raw_ticker,
                 "name": str(row.get("종목명", "")).strip(),
                 "buy_price": float(row.get("매수가", 0)),
                 "quantity": int(row.get("수량", 0)),
                 "buy_date": str(row.get("매수일", "")),
-                "market": str(row.get("시장", "KRX")).strip().upper(),
+                "market": market,
             })
 
         return portfolio
@@ -78,31 +86,33 @@ def calculate_portfolio_summary(
 ) -> dict[str, Any]:
     """
     포트폴리오 수익률 계산
-
-    Returns:
-        {
-            "total_invested": 총 투자금,
-            "total_current": 현재 평가액,
-            "total_return_pct": 총 수익률,
-            "holdings": [{종목별 상세}]
-        }
+    - 가격 조회 실패한 종목도 반드시 포함 (매수가 기준으로 표시)
     """
     holdings = []
     total_invested = 0
     total_current = 0
+    failed_tickers = []
 
     for item in portfolio:
         ticker = item["ticker"]
         price_data = current_prices.get(ticker, {})
         current_price = price_data.get("close", 0)
 
+        # 가격 조회 실패 시 매수가를 fallback으로 사용
         if current_price == 0:
-            continue
+            failed_tickers.append(f"{item['name']}({ticker})")
+            current_price = item["buy_price"]  # 매수가로 대체
+            price_data = {
+                "close": current_price,
+                "prev_close": current_price,
+                "change_pct": 0,
+                "error": "가격 조회 실패 — 매수가 기준 표시",
+            }
 
         invested = item["buy_price"] * item["quantity"]
         current_val = current_price * item["quantity"]
         pnl = current_val - invested
-        pnl_pct = ((current_price - item["buy_price"]) / item["buy_price"]) * 100
+        pnl_pct = ((current_price - item["buy_price"]) / item["buy_price"]) * 100 if item["buy_price"] > 0 else 0
 
         total_invested += invested
         total_current += current_val
@@ -119,8 +129,12 @@ def calculate_portfolio_summary(
             "pnl": round(pnl),
             "pnl_pct": round(pnl_pct, 2),
             "daily_change_pct": price_data.get("change_pct", 0),
-            "weight_pct": 0,  # 아래에서 계산
+            "weight_pct": 0,
+            "price_error": price_data.get("error", ""),
         })
+
+    if failed_tickers:
+        print(f"  ⚠️ 가격 조회 실패 종목 (매수가로 대체): {', '.join(failed_tickers)}")
 
     # 비중 계산
     for h in holdings:
@@ -138,4 +152,5 @@ def calculate_portfolio_summary(
         "total_pnl": round(total_current - total_invested),
         "total_return_pct": round(total_return_pct, 2),
         "holdings": sorted(holdings, key=lambda x: x["weight_pct"], reverse=True),
+        "failed_count": len(failed_tickers),
     }
