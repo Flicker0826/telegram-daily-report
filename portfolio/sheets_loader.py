@@ -82,11 +82,14 @@ def get_ticker_map(portfolio: list[dict]) -> dict[str, str]:
 
 
 def calculate_portfolio_summary(
-    portfolio: list[dict], current_prices: dict[str, dict]
+    portfolio: list[dict], current_prices: dict[str, dict],
+    usd_krw_rate: float = 0,
 ) -> dict[str, Any]:
     """
-    포트폴리오 수익률 계산
-    - 가격 조회 실패한 종목도 반드시 포함 (매수가 기준으로 표시)
+    포트폴리오 수익률 계산 (모든 금액은 원화 기준)
+    - 미국주식: USD 가격 × 환율 → 원화 변환
+    - 매수가: Google Sheets에 원화로 입력된 값 그대로 사용
+    - 가격 조회 실패 시 매수가로 대체
     """
     holdings = []
     total_invested = 0
@@ -95,24 +98,37 @@ def calculate_portfolio_summary(
 
     for item in portfolio:
         ticker = item["ticker"]
+        market = item["market"]
         price_data = current_prices.get(ticker, {})
-        current_price = price_data.get("close", 0)
+        raw_price = price_data.get("close", 0)
+        raw_prev = price_data.get("prev_close", 0)
 
-        # 가격 조회 실패 시 매수가를 fallback으로 사용
-        if current_price == 0:
+        # 가격 조회 실패 시 매수가를 fallback
+        if raw_price == 0:
             failed_tickers.append(f"{item['name']}({ticker})")
-            current_price = item["buy_price"]  # 매수가로 대체
             price_data = {
-                "close": current_price,
-                "prev_close": current_price,
-                "change_pct": 0,
+                "close": 0, "prev_close": 0, "change_pct": 0,
                 "error": "가격 조회 실패 — 매수가 기준 표시",
             }
+            # fallback: 매수가를 현재가로 사용 (이미 원화)
+            current_price_krw = item["buy_price"]
+            prev_close_krw = item["buy_price"]
+            price_usd = 0
+        elif market == "US" and usd_krw_rate > 0:
+            # 미국주식: USD → KRW 변환
+            price_usd = raw_price
+            current_price_krw = round(raw_price * usd_krw_rate)
+            prev_close_krw = round(raw_prev * usd_krw_rate)
+        else:
+            # KRX: 이미 원화
+            price_usd = 0
+            current_price_krw = raw_price
+            prev_close_krw = raw_prev if raw_prev else raw_price
 
         invested = item["buy_price"] * item["quantity"]
-        current_val = current_price * item["quantity"]
+        current_val = current_price_krw * item["quantity"]
         pnl = current_val - invested
-        pnl_pct = ((current_price - item["buy_price"]) / item["buy_price"]) * 100 if item["buy_price"] > 0 else 0
+        pnl_pct = ((current_price_krw - item["buy_price"]) / item["buy_price"]) * 100 if item["buy_price"] > 0 else 0
 
         total_invested += invested
         total_current += current_val
@@ -120,9 +136,11 @@ def calculate_portfolio_summary(
         holdings.append({
             "ticker": ticker,
             "name": item["name"],
-            "buy_price": item["buy_price"],
-            "current_price": current_price,
-            "prev_close": price_data.get("prev_close", current_price),
+            "market": market,
+            "buy_price": item["buy_price"],            # 원화 (시트 입력값)
+            "current_price": current_price_krw,         # 원화 (환산 후)
+            "prev_close": prev_close_krw,               # 원화 (환산 후)
+            "price_usd": price_usd,                     # USD 원본 (미국주식만)
             "quantity": item["quantity"],
             "invested": invested,
             "current_value": current_val,
@@ -136,14 +154,12 @@ def calculate_portfolio_summary(
     if failed_tickers:
         print(f"  ⚠️ 가격 조회 실패 종목 (매수가로 대체): {', '.join(failed_tickers)}")
 
-    # 비중 계산
     for h in holdings:
         h["weight_pct"] = round((h["current_value"] / total_current) * 100, 1) if total_current > 0 else 0
 
     total_return_pct = (
         ((total_current - total_invested) / total_invested) * 100
-        if total_invested > 0
-        else 0
+        if total_invested > 0 else 0
     )
 
     return {
@@ -153,4 +169,5 @@ def calculate_portfolio_summary(
         "total_return_pct": round(total_return_pct, 2),
         "holdings": sorted(holdings, key=lambda x: x["weight_pct"], reverse=True),
         "failed_count": len(failed_tickers),
+        "usd_krw_rate": usd_krw_rate,
     }

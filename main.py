@@ -86,6 +86,8 @@ def build_portfolio_section(portfolio_summary: dict) -> str:
     pnl_sign = "+" if portfolio_summary["total_pnl"] >= 0 else ""
     failed = portfolio_summary.get("failed_count", 0)
     failed_note = f"  ⚠️ {failed}개 종목 가격 조회 실패 (매수가 기준)\n" if failed else ""
+    usd_krw = portfolio_summary.get("usd_krw_rate", 0)
+    fx_note = f"  (환율 적용: $1 = {usd_krw:,.2f}원)\n" if usd_krw > 0 else ""
 
     lines = [
         f"\n💰 *포트폴리오 현황* ({len(portfolio_summary['holdings'])}종목)",
@@ -93,19 +95,27 @@ def build_portfolio_section(portfolio_summary: dict) -> str:
         f"(투자금 {portfolio_summary['total_invested']:,.0f}원)",
         f"  총 수익: {pnl_sign}{portfolio_summary['total_pnl']:,.0f}원 "
         f"({portfolio_summary['total_return_pct']:+.2f}%)",
-        failed_note,
-        f"  *종목별 상세*",
+        fx_note + failed_note,
+        f"  *종목별 상세* (전일→현재, 모두 원화 기준)",
     ]
 
     for h in portfolio_summary["holdings"]:
         error_tag = " ⚠️" if h.get("price_error") else ""
         daily_icon = "🔺" if h.get("daily_change_pct", 0) >= 0 else "🔻"
         pnl_s = "+" if h["pnl"] >= 0 else ""
+
+        # 미국주식: USD 원본가 표시 + 원화 환산가
+        if h.get("market") == "US" and h.get("price_usd", 0) > 0:
+            usd_line = f"    (${h['price_usd']:,.2f} × {usd_krw:,.0f}원)\n"
+        else:
+            usd_line = ""
+
         lines.append(
             f"  ▸ {h['name']} ({h['ticker']}){error_tag}\n"
-            f"    전일 {h.get('prev_close', '-'):,} → 현재 {h['current_price']:,}  "
+            f"    전일 {h.get('prev_close', '-'):,}원 → 현재 {h['current_price']:,}원  "
             f"{daily_icon}{abs(h.get('daily_change_pct', 0)):.2f}%\n"
-            f"    매수가 {h['buy_price']:,} × {h['quantity']}주\n"
+            f"{usd_line}"
+            f"    매수가 {h['buy_price']:,}원 × {h['quantity']}주\n"
             f"    수익 {pnl_s}{h['pnl']:,}원 ({h['pnl_pct']:+.1f}%) | "
             f"비중 {h['weight_pct']:.1f}%"
         )
@@ -148,9 +158,16 @@ def run():
               f"금리 {len(market_data.get('interest_rates', {}))}개, "
               f"종목가격 {len(market_data.get('portfolio_prices', {}))}개 수집")
 
-        # 포트폴리오 수익률 계산
+        # USD/KRW 환율 추출 (미국주식 원화 환산용)
+        fx_data = market_data.get("exchange_rates", {})
+        usd_krw = fx_data.get("USD/KRW", {}).get("rate", 0)
+        if usd_krw > 0:
+            print(f"  💱 적용 환율: USD/KRW = {usd_krw:,.2f}")
+
+        # 포트폴리오 수익률 계산 (모든 금액 원화 기준)
         portfolio_summary = calculate_portfolio_summary(
-            portfolio, market_data.get("portfolio_prices", {})
+            portfolio, market_data.get("portfolio_prices", {}),
+            usd_krw_rate=usd_krw,
         )
 
         # ── Step 3: 뉴스 ──
