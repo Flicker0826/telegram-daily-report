@@ -79,6 +79,7 @@ def run():
         market_data = collect_all_market_data(ticker_map)
         print(f"  ✅ 지수 {len(market_data.get('indices', {}))}개, "
               f"환율 {len(market_data.get('exchange_rates', {}))}개, "
+              f"금리 {len(market_data.get('interest_rates', {}))}개, "
               f"종목가격 {len(market_data.get('portfolio_prices', {}))}개 수집")
 
         # 포트폴리오 수익률 계산
@@ -87,10 +88,11 @@ def run():
         )
 
         # ── Step 3: 뉴스 수집 ──
-        print("\n[3/4] 뉴스 수집 중...")
-        articles = fetch_news(max_items=5)
-        news_text = format_news_for_prompt(articles)
-        print(f"  ✅ 뉴스 {len(articles)}건 수집")
+        print("\n[3/4] 섹터별 뉴스 수집 중...")
+        sector_news = fetch_news(max_per_sector=3)
+        news_text = format_news_for_prompt(sector_news)
+        total_articles = sum(len(v) for v in sector_news.values())
+        print(f"  ✅ {len(sector_news)}개 섹터, 총 {total_articles}건 수집")
 
         # ── Step 4: LLM 분석 ──
         print("\n[4/4] Gemini 분석 중...")

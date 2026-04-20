@@ -1,9 +1,9 @@
 name: Daily Financial Report
 
 on:
-  # 매일 KST 오전 7:30 실행 (UTC 22:30 전날)
+  # 매일 KST 정오 12:00 실행 (UTC 03:00)
   schedule:
-    - cron: '30 22 * * *'
+    - cron: '0 3 * * *'
 
   # 수동 실행 가능
   workflow_dispatch:

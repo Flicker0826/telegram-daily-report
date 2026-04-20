@@ -1,79 +1,78 @@
-"""경제 뉴스 RSS 수집"""
+"""5개 섹터별 경제 뉴스 RSS 수집"""
+import re
 import feedparser
 from typing import Any
 
 
-# 무료 RSS 피드 목록
-NEWS_FEEDS = {
-    "한국경제": "https://www.hankyung.com/feed/economy",
-    "연합뉴스_경제": "https://www.yonhapnewstv.co.kr/browse/feed/category/economy",
-    "매일경제": "https://www.mk.co.kr/rss/30100041/",
+# 5개 섹터별 뉴스 피드
+SECTOR_FEEDS = {
+    "거시경제/금융": [
+        "https://news.google.com/rss/search?q=한국+기준금리+경제+환율&hl=ko&gl=KR&ceid=KR:ko",
+        "https://www.mk.co.kr/rss/30100041/",
+    ],
+    "반도체/IT": [
+        "https://news.google.com/rss/search?q=삼성전자+SK하이닉스+반도체+AI&hl=ko&gl=KR&ceid=KR:ko",
+    ],
+    "에너지/소재": [
+        "https://news.google.com/rss/search?q=유가+원자재+2차전지+에너지&hl=ko&gl=KR&ceid=KR:ko",
+    ],
+    "바이오/헬스케어": [
+        "https://news.google.com/rss/search?q=바이오+제약+헬스케어+임상&hl=ko&gl=KR&ceid=KR:ko",
+    ],
+    "글로벌/지정학": [
+        "https://news.google.com/rss/search?q=미중+관세+무역+지정학+글로벌&hl=ko&gl=KR&ceid=KR:ko",
+    ],
 }
 
-# 대체 피드 (위 피드가 불안정할 경우)
-FALLBACK_FEEDS = {
-    "Google뉴스_경제": "https://news.google.com/rss/search?q=한국+경제&hl=ko&gl=KR&ceid=KR:ko",
-    "Google뉴스_증시": "https://news.google.com/rss/search?q=한국+증시&hl=ko&gl=KR&ceid=KR:ko",
-}
 
-
-def fetch_news(max_items: int = 5) -> list[dict[str, Any]]:
+def fetch_news(max_per_sector: int = 3) -> dict[str, list[dict[str, Any]]]:
     """
-    경제 뉴스 수집 (최대 max_items * 피드 수)
+    섹터별 뉴스 수집
+    Returns: {"섹터명": [{"title": ..., "summary": ...}, ...]}
     """
-    articles = []
+    result = {}
 
-    for source, url in NEWS_FEEDS.items():
-        try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries[:max_items]:
-                articles.append({
-                    "source": source,
-                    "title": entry.get("title", "제목 없음"),
-                    "link": entry.get("link", ""),
-                    "published": entry.get("published", ""),
-                    "summary": _clean_summary(entry.get("summary", "")),
-                })
-        except Exception:
-            continue
-
-    # 피드에서 아무것도 못 가져온 경우 대체 피드 사용
-    if not articles:
-        for source, url in FALLBACK_FEEDS.items():
+    for sector, urls in SECTOR_FEEDS.items():
+        articles = []
+        for url in urls:
             try:
                 feed = feedparser.parse(url)
-                for entry in feed.entries[:max_items]:
-                    articles.append({
-                        "source": source,
-                        "title": entry.get("title", ""),
-                        "link": entry.get("link", ""),
-                        "published": entry.get("published", ""),
-                        "summary": _clean_summary(entry.get("summary", "")),
-                    })
+                for entry in feed.entries[:max_per_sector]:
+                    title = entry.get("title", "")
+                    if title and title not in [a["title"] for a in articles]:
+                        articles.append({
+                            "title": title,
+                            "link": entry.get("link", ""),
+                            "published": entry.get("published", ""),
+                            "summary": _clean_summary(entry.get("summary", "")),
+                        })
             except Exception:
                 continue
 
-    return articles
+        result[sector] = articles[:max_per_sector]
+
+    return result
 
 
 def _clean_summary(text: str) -> str:
-    """HTML 태그 제거 및 길이 제한"""
-    import re
-    clean = re.sub(r"<[^>]+>", "", text)
-    clean = clean.strip()
-    if len(clean) > 200:
-        clean = clean[:200] + "..."
-    return clean
+    clean = re.sub(r"<[^>]+>", "", text).strip()
+    return clean[:150] + "..." if len(clean) > 150 else clean
 
 
-def format_news_for_prompt(articles: list[dict]) -> str:
-    """LLM 프롬프트용 뉴스 텍스트 포맷"""
-    if not articles:
+def format_news_for_prompt(sector_news: dict[str, list[dict]]) -> str:
+    """LLM 프롬프트용 섹터별 뉴스 텍스트"""
+    if not sector_news:
         return "오늘의 경제 뉴스를 수집하지 못했습니다."
 
-    lines = ["[오늘의 주요 경제 뉴스]"]
-    for i, a in enumerate(articles[:10], 1):  # 최대 10개
-        lines.append(f"{i}. [{a['source']}] {a['title']}")
-        if a["summary"]:
-            lines.append(f"   요약: {a['summary']}")
+    lines = ["[오늘의 섹터별 주요 뉴스]"]
+    for sector, articles in sector_news.items():
+        lines.append(f"\n▶ {sector}")
+        if not articles:
+            lines.append("  (뉴스 없음)")
+            continue
+        for i, a in enumerate(articles, 1):
+            lines.append(f"  {i}. {a['title']}")
+            if a["summary"]:
+                lines.append(f"     → {a['summary']}")
+
     return "\n".join(lines)
