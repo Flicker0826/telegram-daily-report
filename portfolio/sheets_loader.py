@@ -112,6 +112,7 @@ def calculate_portfolio_summary(
             "name": item["name"],
             "buy_price": item["buy_price"],
             "current_price": current_price,
+            "prev_close": price_data.get("prev_close", current_price),
             "quantity": item["quantity"],
             "invested": invested,
             "current_value": current_val,
