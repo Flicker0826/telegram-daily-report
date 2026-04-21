@@ -102,3 +102,4 @@ telegram-daily-report/
 │       └── daily_report.yml # GitHub Actions 스케줄
 └── README.md
 ```
+
