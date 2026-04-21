@@ -1,4 +1,4 @@
-"""Gemini API — 분석 코멘트 전용 (데이터 대시보드는 main.py에서 Python이 생성)"""
+""Gemini API — 분석 코멘트 전용 (데이터 대시보드는 main.py에서 Python이 생성)"""
 import json
 import time
 import requests
@@ -110,7 +110,8 @@ def build_analysis_prompt(
 
 마지막에 "※ 본 리포트는 참고용이며 투자 판단의 최종 책임은 투자자에게 있습니다." 한줄 추가.
 
-전체 분량은 약 2000~3000자로 유지하세요.
+중요: 전체 분량은 반드시 2000자 이상, 3500자 이하로 작성하세요. 
+각 섹션을 빠짐없이 모두 작성해야 합니다. 절대로 축약하거나 생략하지 마세요.
 """
     return prompt
 
@@ -119,12 +120,24 @@ def _call_gemini(model: str, prompt: str) -> tuple[bool, str]:
     url = f"{GEMINI_BASE}{model}:generateContent?key={config.GEMINI_API_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096},
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 16384,  # thinking 토큰 포함이므로 넉넉히
+        },
+        # Gemini 2.5는 thinking 모델 — 실제 응답에 충분한 토큰 배분
+        "thinkingConfig": {
+            "thinkingBudget": 2048,  # thinking은 2048로 제한, 나머지는 응답에 사용
+        },
     }
-    response = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=90)
+    response = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
     if response.status_code == 200:
         data = response.json()
-        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        # thinking 모델은 parts가 여러 개일 수 있음 — 마지막 text part가 실제 응답
+        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        text = ""
+        for part in parts:
+            if part.get("text"):
+                text = part["text"]  # 마지막 text part가 최종 응답
         return (True, text) if text else (False, "빈 응답")
     return (False, f"HTTP {response.status_code}")
 
@@ -144,6 +157,11 @@ def analyze_with_gemini(market_data: dict, portfolio_summary: dict, news_text: s
                 print(f"  → [{model}] 시도 {attempt}/2...")
                 success, result = _call_gemini(model, prompt)
                 if success:
+                    # 응답이 너무 짧으면 재시도 (thinking에 토큰을 다 쓴 경우)
+                    if len(result) < 500:
+                        print(f"  ⚠️ {model} 응답 너무 짧음 ({len(result)}자), 재시도...")
+                        time.sleep(5)
+                        continue
                     print(f"  ✅ {model} 분석 성공 ({len(result)}자)")
                     return result
                 print(f"  ⚠️ {model} 실패: {result}")
