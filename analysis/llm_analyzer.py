@@ -124,10 +124,6 @@ def _call_gemini(model: str, prompt: str) -> tuple[bool, str]:
             "temperature": 0.7,
             "maxOutputTokens": 16384,  # thinking 토큰 포함이므로 넉넉히
         },
-        # Gemini 2.5는 thinking 모델 — 실제 응답에 충분한 토큰 배분
-        "thinkingConfig": {
-            "thinkingBudget": 2048,  # thinking은 2048로 제한, 나머지는 응답에 사용
-        },
     }
     response = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=120)
     if response.status_code == 200:
