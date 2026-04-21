@@ -1,4 +1,4 @@
-""Gemini API — 분석 코멘트 전용 (데이터 대시보드는 main.py에서 Python이 생성)"""
+"""Gemini API — 분석 코멘트 전용 (데이터 대시보드는 main.py에서 Python이 생성)"""
 import json
 import time
 import requests
